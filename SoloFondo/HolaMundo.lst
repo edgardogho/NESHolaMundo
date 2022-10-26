@@ -1,0 +1,450 @@
+ca65 V2.18 - Ubuntu 2.18-1
+Main file   : HolaMundo.s
+Current file: HolaMundo.s
+
+000000r 1               .linecont       +               ; Permitir continuar lineas
+000000r 1               .feature        c_comments      /* Soportar comentarios tipo C */
+000000r 1               
+000000r 1               ;Definir el segmento HEADER para que FCEUX reconozca el archivo .nes
+000000r 1               ;como una imagen valida de un cartucho de NES
+000000r 1               
+000000r 1               .segment "HEADER"
+000000r 1               
+000000r 1               ; Configurar con Mapper NROM 0 con bancos fijos
+000000r 1  4E 45 53 1A    .byte 'N', 'E', 'S', $1A    ; Firma de NES para el emulador
+000004r 1  02             .byte $02                   ; PRG tiene 16k
+000005r 1  01             .byte $01                   ; CHR tiene 8k (archivo chr)
+000006r 1  00             .byte %00000000             ;NROM Mapper 0
+000007r 1  00 00 00 00    .byte $0, $0, $0, $0, $0, $0
+00000Br 1  00 00        
+00000Dr 1               ; Fin del header
+00000Dr 1               ;; Este Header se encuentra definido en el archivo link.x el cual
+00000Dr 1               ;; define donde va a quedar en el archivo .NES final
+00000Dr 1               
+00000Dr 1               
+00000Dr 1               ;Incluir el binario con las imagenes de la rom de caracteres
+00000Dr 1               .segment "IMG"
+000000r 1  00 00 00 00  .incbin "letras.chr"
+000004r 1  00 00 00 00  
+000008r 1  00 00 00 00  
+002000r 1               
+002000r 1               
+002000r 1               ;Declaracion de variables en la pagina 0
+002000r 1               ;; Esto es RWM (RAM), por ende se "reservan" bytes
+002000r 1               ;; para luego ser usados como variables.
+002000r 1               .segment "ZEROPAGE"
+000000r 1  xx           	posX: .res 1
+000001r 1  xx           	posY: .res 1
+000002r 1               
+000002r 1               ;;Segmento de codigo guardado en la ROM
+000002r 1               .segment "CODE"
+000000r 1               
+000000r 1               ;Rutina de interrupcion (IRQ)
+000000r 1               ;No es utilizada por ahora
+000000r 1               irq:
+000000r 1  40           	rti
+000001r 1               
+000001r 1               ;;Rutina de interrupcion (Reset)
+000001r 1               ;;; Esta rutina se dispara cuando el nintendo se enciende
+000001r 1               ;;; o se aprieta el boton de reset. Se encarga de inicializar
+000001r 1               ;;; el hardware
+000001r 1               reset:
+000001r 1  78             SEI          ; desactivar IRQs
+000002r 1  D8             CLD          ; desactivar modo decimal
+000003r 1               
+000003r 1               ;;Durante el encendido del Nintendo hay que respetar unos tiempos
+000003r 1                 ;;hasta que el PPU se encuentra listo para ser utilizado.
+000003r 1                 ;;A continuacion se siguen los pasos sugeridos en:
+000003r 1                 ;; https://wiki.nesdev.com/w/index.php/Init_code
+000003r 1  A2 40          LDX #$40
+000005r 1  8E 17 40       STX $4017    ; disable APU frame IRQ
+000008r 1  A2 FF          LDX #$FF
+00000Ar 1  9A             TXS          ; Set up stack
+00000Br 1  E8             INX          ; now X = 0
+00000Cr 1  8E 00 20       STX $2000    ; disable NMI
+00000Fr 1  8E 01 20       STX $2001    ; disable rendering
+000012r 1  8E 10 40       STX $4010    ; disable DMC IRQs
+000015r 1               
+000015r 1               vblankwait1:       ; First wait for vblank to make sure PPU is ready
+000015r 1  2C 02 20       BIT $2002
+000018r 1  10 FB          BPL vblankwait1
+00001Ar 1               
+00001Ar 1               clrmem:
+00001Ar 1  A9 00          LDA #$00
+00001Cr 1  95 00          STA $0000, x
+00001Er 1  9D 00 01       STA $0100, x
+000021r 1  9D 00 03       STA $0300, x
+000024r 1  9D 00 04       STA $0400, x
+000027r 1  9D 00 05       STA $0500, x
+00002Ar 1  9D 00 06       STA $0600, x
+00002Dr 1  9D 00 07       STA $0700, x
+000030r 1  A9 FE          LDA #$FE
+000032r 1  9D 00 02       STA $0200, x
+000035r 1  E8             INX
+000036r 1  D0 E2          BNE clrmem
+000038r 1               
+000038r 1               vblankwait2:      ; Second wait for vblank, PPU is ready after this
+000038r 1  2C 02 20       BIT $2002
+00003Br 1  10 FB          BPL vblankwait2
+00003Dr 1               
+00003Dr 1               
+00003Dr 1                 ;;Cargamos la paleta de colores.
+00003Dr 1  20 rr rr       JSR SUBPaleta
+000040r 1               
+000040r 1               
+000040r 1               
+000040r 1                 ;; Ahora que las paletas estan cargadas, podemos dibujar el fondo
+000040r 1  20 rr rr       JSR SUBDibujaFondo
+000043r 1               
+000043r 1                 ;; Encendemos el PPU
+000043r 1                 ;; y el barrido vertical
+000043r 1                 ;; y apuntamos el PPU a
+000043r 1                 ;; la tabla 0 de sprites
+000043r 1                 ;; y 1 para fondos
+000043r 1               
+000043r 1  A9 80          LDA #%10000000
+000045r 1  8D 00 20       STA $2000
+000048r 1               
+000048r 1                 ;; Encendemos Sprites, Background y sin clipping en lado izquierdo
+000048r 1  A9 1E          LDA #%00011110
+00004Ar 1  8D 01 20       STA $2001
+00004Dr 1               
+00004Dr 1                 ;;Apagamos el scroll del background (fondo)
+00004Dr 1  A9 00          LDA #$00
+00004Fr 1  8D 05 20       STA $2005
+000052r 1  8D 05 20       STA $2005
+000055r 1               
+000055r 1                 ;;Habilitamos las interrupciones
+000055r 1  58             CLI
+000056r 1               
+000056r 1               fin:
+000056r 1               
+000056r 1  4C rr rr       jmp fin
+000059r 1               ;Rutina de interrupcion (NMI)
+000059r 1               ;Esta rutina se dispara cuando la pantalla
+000059r 1               ;se dibujo por completo, y el barrido vertical
+000059r 1               ;esta volviendo al inicio. Deberia poder utilizarse
+000059r 1               ;solo por 2250 ciclos aprox. Deberia dispararse 25 veces
+000059r 1               ;por segundo o 50 con interlaceado
+000059r 1               nmi:
+000059r 1                 ;;Guardamos en el stack el estado del CPU (flags y acumulador)
+000059r 1  48             PHA
+00005Ar 1  08             PHP
+00005Br 1               
+00005Br 1                 ;;Ahora recuperamos el estado del CPU (flags y acumulador) y listo
+00005Br 1  28             PLP
+00005Cr 1  68             PLA
+00005Dr 1  40             RTI
+00005Er 1               
+00005Er 1               
+00005Er 1               
+00005Er 1               
+00005Er 1               
+00005Er 1               ;; Esta rutina dibuja el fondo (Background Tiles).
+00005Er 1               SUBDibujaFondo:
+00005Er 1  AD 02 20       LDA $2002             ; Hay que leer el PPU para resetear la posicion
+000061r 1  A9 20          LDA #$20
+000063r 1  8D 06 20       STA $2006             ; Se carga la parte alta de $2000
+000066r 1  A9 00          LDA #$00
+000068r 1  8D 06 20       STA $2006             ; Se carga la parte baja de $2000
+00006Br 1  A2 00          LDX #$00
+00006Dr 1               
+00006Dr 1                 ;;Una pantalla entera tiene 32x30 tiles, o sea 960 bytes.
+00006Dr 1                 ;;Pero el registro X es de 8 bits, por ende tenemos que cargar
+00006Dr 1                 ;;de 256 bytes a la vez o usar modo indirecto indexado pero hay que
+00006Dr 1                 ;;contar con 16 bits, asi que es mas facil cargarlo por partes.
+00006Dr 1               
+00006Dr 1                 ;;Cargamos los primeros 256 bytes
+00006Dr 1               LoadBackgroundLoop:
+00006Dr 1  BD rr rr       LDA MapaHolaMundo, x
+000070r 1  8D 07 20       STA $2007              ;Grabamos el valor a PPU, que se autoincrementa
+000073r 1  E8             INX                    ; incrementamos X para el loop.
+000074r 1  D0 F7          BNE LoadBackgroundLoop ; Si X pego la vuelta, se cargaron 256 bytes.
+000076r 1               
+000076r 1               
+000076r 1               
+000076r 1               LoadBackgroundLoop256:
+000076r 1  BD rr rr       LDA MapaHolaMundo+256, x
+000079r 1  8D 07 20       STA $2007
+00007Cr 1  E8             INX
+00007Dr 1  D0 F7          BNE LoadBackgroundLoop256
+00007Fr 1               
+00007Fr 1               LoadBackgroundLoop512:
+00007Fr 1  BD rr rr       LDA MapaHolaMundo+512, x
+000082r 1  8D 07 20       STA $2007
+000085r 1  E8             INX
+000086r 1  D0 F7          BNE LoadBackgroundLoop512
+000088r 1               
+000088r 1                 ;;Este ultimo loop tiene que ir desde 768 hasta 960 solamente
+000088r 1               
+000088r 1               LoadBackgroundLoop192:
+000088r 1  BD rr rr       LDA MapaHolaMundo+512+256, x
+00008Br 1  8D 07 20       STA $2007
+00008Er 1  E8             INX
+00008Fr 1  E0 C0          CPX #192
+000091r 1  D0 F5          BNE LoadBackgroundLoop192
+000093r 1               
+000093r 1                ;;Este loop carga los registros de atributos que estan a continuacion de los tiles.
+000093r 1                ;;Comienza apuntando el PPU a la memoria de atributos correspondiente
+000093r 1               
+000093r 1               LoadAttribute:
+000093r 1  AD 02 20       LDA $2002
+000096r 1  A9 23          LDA #$23
+000098r 1  8D 06 20       STA $2006
+00009Br 1  A9 C0          LDA #$C0
+00009Dr 1  8D 06 20       STA $2006
+0000A0r 1  A2 00          LDX #$00
+0000A2r 1               
+0000A2r 1                 ;;Ahora barremos los atributos y los vamos pasando al PPU
+0000A2r 1               LoadAttributeLoop:
+0000A2r 1  BD rr rr       LDA MapaHolaMundo+960, x
+0000A5r 1  8D 07 20       STA $2007
+0000A8r 1  E8             INX
+0000A9r 1  E0 40          CPX #64
+0000ABr 1  D0 F5          BNE LoadAttributeLoop
+0000ADr 1               
+0000ADr 1                 ;;Todo listo, podemos volver
+0000ADr 1  60             RTS
+0000AEr 1               
+0000AEr 1               SUBPaleta:
+0000AEr 1  A9 3F        	lda #$3f
+0000B0r 1  8D 06 20     	sta $2006
+0000B3r 1  A9 00        	lda #$00
+0000B5r 1  8D 06 20     	sta $2006
+0000B8r 1  A2 21        	ldx #$21
+0000BAr 1  8E 07 20     	stx $2007
+0000BDr 1  A9 14        	lda #$14
+0000BFr 1  8D 07 20     	sta $2007
+0000C2r 1  A9 10        	lda #$10
+0000C4r 1  8D 07 20     	sta $2007
+0000C7r 1  A9 30        	lda #$30
+0000C9r 1  8D 07 20     	sta $2007
+0000CCr 1  8E 07 20     	stx $2007
+0000CFr 1  A9 01        	lda #$01
+0000D1r 1  8D 07 20     	sta $2007
+0000D4r 1  A9 21        	lda #$21
+0000D6r 1  8D 07 20     	sta $2007
+0000D9r 1  A9 31        	lda #$31
+0000DBr 1  8D 07 20     	sta $2007
+0000DEr 1  8E 07 20     	stx $2007
+0000E1r 1  A9 06        	lda #$06
+0000E3r 1  8D 07 20     	sta $2007
+0000E6r 1  A9 16        	lda #$16
+0000E8r 1  8D 07 20     	sta $2007
+0000EBr 1  A9 26        	lda #$26
+0000EDr 1  8D 07 20     	sta $2007
+0000F0r 1  8E 07 20     	stx $2007
+0000F3r 1  A9 09        	lda #$09
+0000F5r 1  8D 07 20     	sta $2007
+0000F8r 1  A9 19        	lda #$19
+0000FAr 1  8D 07 20     	sta $2007
+0000FDr 1  A9 29        	lda #$29
+0000FFr 1  8D 07 20     	sta $2007
+000102r 1  60           	RTS
+000103r 1               
+000103r 1               
+000103r 1               MapaHolaMundo:
+000103r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000107r 1  00 00 00 00  
+00010Br 1  00 00 00 00  
+000113r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000117r 1  00 00 00 00  
+00011Br 1  00 00 00 00  
+000123r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000127r 1  00 00 00 00  
+00012Br 1  00 00 00 00  
+000133r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000137r 1  00 00 00 00  
+00013Br 1  00 00 00 00  
+000143r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000147r 1  00 00 00 00  
+00014Br 1  00 00 00 00  
+000153r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000157r 1  00 00 00 00  
+00015Br 1  00 00 00 00  
+000163r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000167r 1  00 00 00 00  
+00016Br 1  00 00 00 00  
+000173r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000177r 1  00 00 00 00  
+00017Br 1  00 00 00 00  
+000183r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000187r 1  00 00 00 00  
+00018Br 1  00 00 00 00  
+000193r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000197r 1  00 00 00 00  
+00019Br 1  00 00 00 00  
+0001A3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0001A7r 1  00 00 00 00  
+0001ABr 1  00 00 00 00  
+0001B3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0001B7r 1  00 00 00 00  
+0001BBr 1  00 00 00 00  
+0001C3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0001C7r 1  00 00 00 00  
+0001CBr 1  00 00 00 00  
+0001D3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0001D7r 1  00 00 00 00  
+0001DBr 1  00 00 00 00  
+0001E3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$28,$00,$2f,$00,$2c,$00,$21,$00
+0001E7r 1  00 00 00 00  
+0001EBr 1  28 00 2F 00  
+0001F3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0001F7r 1  00 00 00 00  
+0001FBr 1  00 00 00 00  
+000203r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000207r 1  00 00 00 00  
+00020Br 1  00 00 00 00  
+000213r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000217r 1  00 00 00 00  
+00021Br 1  00 00 00 00  
+000223r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$01,$01,$01,$2d,$35,$2e,$24,$2f,$01,$01
+000227r 1  00 00 01 01  
+00022Br 1  01 2D 35 2E  
+000233r 1  01 00 00 00  	.byte $01,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000237r 1  00 00 00 00  
+00023Br 1  00 00 00 00  
+000243r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000247r 1  00 00 00 00  
+00024Br 1  00 00 00 00  
+000253r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000257r 1  00 00 00 00  
+00025Br 1  00 00 00 00  
+000263r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000267r 1  00 00 00 00  
+00026Br 1  00 00 00 00  
+000273r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000277r 1  00 00 00 00  
+00027Br 1  00 00 00 00  
+000283r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000287r 1  00 00 00 00  
+00028Br 1  00 00 00 00  
+000293r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000297r 1  00 00 00 00  
+00029Br 1  00 00 00 00  
+0002A3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0002A7r 1  00 00 00 00  
+0002ABr 1  00 00 00 00  
+0002B3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0002B7r 1  00 00 00 00  
+0002BBr 1  00 00 00 00  
+0002C3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0002C7r 1  00 00 00 00  
+0002CBr 1  00 00 00 00  
+0002D3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0002D7r 1  00 00 00 00  
+0002DBr 1  00 00 00 00  
+0002E3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0002E7r 1  00 00 00 00  
+0002EBr 1  00 00 00 00  
+0002F3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0002F7r 1  00 00 00 00  
+0002FBr 1  00 00 00 00  
+000303r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000307r 1  00 00 00 00  
+00030Br 1  00 00 00 00  
+000313r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000317r 1  00 00 00 00  
+00031Br 1  00 00 00 00  
+000323r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000327r 1  00 00 00 00  
+00032Br 1  00 00 00 00  
+000333r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000337r 1  00 00 00 00  
+00033Br 1  00 00 00 00  
+000343r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000347r 1  00 00 00 00  
+00034Br 1  00 00 00 00  
+000353r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000357r 1  00 00 00 00  
+00035Br 1  00 00 00 00  
+000363r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000367r 1  00 00 00 00  
+00036Br 1  00 00 00 00  
+000373r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000377r 1  00 00 00 00  
+00037Br 1  00 00 00 00  
+000383r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000387r 1  00 00 00 00  
+00038Br 1  00 00 00 00  
+000393r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000397r 1  00 00 00 00  
+00039Br 1  00 00 00 00  
+0003A3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0003A7r 1  00 00 00 00  
+0003ABr 1  00 00 00 00  
+0003B3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0003B7r 1  00 00 00 00  
+0003BBr 1  00 00 00 00  
+0003C3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0003C7r 1  00 00 00 00  
+0003CBr 1  00 00 00 00  
+0003D3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0003D7r 1  00 00 00 00  
+0003DBr 1  00 00 00 00  
+0003E3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0003E7r 1  00 00 00 00  
+0003EBr 1  00 00 00 00  
+0003F3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0003F7r 1  00 00 00 00  
+0003FBr 1  00 00 00 00  
+000403r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000407r 1  00 00 00 00  
+00040Br 1  00 00 00 00  
+000413r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000417r 1  00 00 00 00  
+00041Br 1  00 00 00 00  
+000423r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000427r 1  00 00 00 00  
+00042Br 1  00 00 00 00  
+000433r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000437r 1  00 00 00 00  
+00043Br 1  00 00 00 00  
+000443r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000447r 1  00 00 00 00  
+00044Br 1  00 00 00 00  
+000453r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000457r 1  00 00 00 00  
+00045Br 1  00 00 00 00  
+000463r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000467r 1  00 00 00 00  
+00046Br 1  00 00 00 00  
+000473r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000477r 1  00 00 00 00  
+00047Br 1  00 00 00 00  
+000483r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000487r 1  00 00 00 00  
+00048Br 1  00 00 00 00  
+000493r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+000497r 1  00 00 00 00  
+00049Br 1  00 00 00 00  
+0004A3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0004A7r 1  00 00 00 00  
+0004ABr 1  00 00 00 00  
+0004B3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0004B7r 1  00 00 00 00  
+0004BBr 1  00 00 00 00  
+0004C3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0004C7r 1  00 00 00 00  
+0004CBr 1  00 00 00 00  
+0004D3r 1  00 04 09 07  	.byte $00,$04,$09,$07,$01,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0004D7r 1  01 00 00 00  
+0004DBr 1  00 00 00 00  
+0004E3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0004E7r 1  00 00 00 00  
+0004EBr 1  00 00 00 00  
+0004F3r 1  00 00 00 00  	.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+0004F7r 1  00 00 00 00  
+0004FBr 1  00 00 00 00  
+000503r 1               
+000503r 1               
+000503r 1               
+000503r 1               
+000503r 1               
+000503r 1               
+000503r 1               ; Direcciones para las ISR
+000503r 1               .segment "VECTORS"
+000000r 1  rr rr        .word nmi
+000002r 1  rr rr        .word reset
+000004r 1  rr rr        .word irq
+000004r 1               
